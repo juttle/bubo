@@ -469,12 +469,8 @@ void test_hash_set() {
     bubo_hash_set.get_stats(&stat);
 
     assert(stat.spine_len == 4096); // initial spine size
-    assert(stat.spine_use == 0);
     assert(stat.entries == 0);
     assert(stat.ht_bytes == 4096 * 16);
-    assert(stat.collision_slots == 0);
-    assert(stat.total_chain_len == 0);
-    assert(stat.max_chain_len == 0);
     assert(stat.blob_allocated_bytes == (20 << 20));
     assert(stat.blob_used_bytes == 0);
 
@@ -496,12 +492,8 @@ void test_hash_set() {
     bubo_hash_set.get_stats(&stat);
 
     assert(stat.spine_len == 4096); // initial spine size
-    assert(stat.spine_use == 1);
     assert(stat.entries == 1);
     assert(stat.ht_bytes == 4096 * 16);
-    assert(stat.collision_slots == 0);
-    assert(stat.total_chain_len == 0);
-    assert(stat.max_chain_len == 0);
     assert(stat.blob_allocated_bytes == (20 << 20));
     assert(stat.blob_used_bytes == 8);
 
@@ -510,12 +502,8 @@ void test_hash_set() {
     assert(false == bubo_hash_set.insert(test, 8));
 
     assert(stat.spine_len == 4096);
-    assert(stat.spine_use == 1);
     assert(stat.entries == 1);
     assert(stat.ht_bytes == 4096 * 16);
-    assert(stat.collision_slots == 0);
-    assert(stat.total_chain_len == 0);
-    assert(stat.max_chain_len == 0);
     assert(stat.blob_allocated_bytes == (20 << 20));
     assert(stat.blob_used_bytes == 8);
 
@@ -523,7 +511,7 @@ void test_hash_set() {
 
 void test_hash_set_add_many_erase() {
 
-    BuboHashSet<BytePtrHash, BytePtrEqual> bubo_hash_set(512, 2048);
+    BuboHashSet<BytePtrHash, BytePtrEqual> bubo_hash_set(512, 16384);
     BuboHashStat stat;
 
     BYTE test[20];
@@ -545,9 +533,10 @@ void test_hash_set_add_many_erase() {
             bubo_hash_set.insert(test, 8);
         }
     }
+
     bubo_hash_set.get_stats(&stat);
 
-    assert(stat.spine_len == 2048);
+    assert(stat.spine_len == 16384);
     assert(stat.entries == 10000);
     assert(stat.blob_allocated_bytes == (20 << 20));
     assert(stat.blob_used_bytes == 80000);
@@ -562,10 +551,62 @@ void test_hash_set_add_many_erase() {
         }
     }
     bubo_hash_set.get_stats(&stat);
-    assert(stat.spine_len == 2048);
+    assert(stat.spine_len == 16384);
     assert(stat.entries == 9100);
     assert(stat.blob_allocated_bytes == (20 << 20));
     assert(stat.blob_used_bytes == 80000);
+}
+
+uint32_t HashToOne::operator()(const BYTE* p, int len) const {
+    return 1;
+}
+
+void test_has_collisions() {
+    BuboHashSet<HashToOne, BytePtrEqual> colliding_hash_set(3, 3);
+
+    BYTE pt1[20];
+
+    pt1[0] = 0x02; // <-- len
+    pt1[1] = 0x7F; // k[0] end
+    pt1[2] = 0x81;
+    pt1[3] = 0x9E;
+    pt1[4] = 0x81;
+    pt1[5] = 0x44; // v[0] end
+    pt1[6] = 0x7F; // k[1] end
+    pt1[7] = 0x7F; // v[0] end
+
+    BYTE pt2[20];
+    pt2[0] = 0x02; // <-- len
+    pt2[1] = 0x7F; // k[0] end
+    pt2[2] = 0x82;
+    pt2[3] = 0x9E;
+    pt2[4] = 0x81;
+    pt2[5] = 0x44; // v[0] end
+    pt2[6] = 0x7F; // k[1] end
+    pt2[7] = 0x7F; // v[0] end
+
+    assert(true == colliding_hash_set.insert(pt1, 8));
+    assert(true == colliding_hash_set.insert(pt2, 8));
+
+    assert(true == colliding_hash_set.contains(pt1, 8));
+    assert(true == colliding_hash_set.contains(pt2, 8));
+
+    colliding_hash_set.erase(pt1);
+    assert(false == colliding_hash_set.contains(pt1, 8));
+    assert(true == colliding_hash_set.contains(pt2, 8));
+
+    colliding_hash_set.erase(pt2);
+    assert(false == colliding_hash_set.contains(pt1, 8));
+    assert(false == colliding_hash_set.contains(pt2, 8));
+
+    assert(true == colliding_hash_set.insert(pt2, 8));
+    assert(false == colliding_hash_set.contains(pt1, 8));
+    assert(true == colliding_hash_set.contains(pt2, 8));
+
+    BuboHashStat stat;
+
+    colliding_hash_set.get_stats(&stat);
+    assert(stat.entries == 1);
 }
 
 void testall() {
@@ -585,4 +626,5 @@ void testall() {
 
     test_hash_set();
     test_hash_set_add_many_erase();
+    test_has_collisions();
 }
